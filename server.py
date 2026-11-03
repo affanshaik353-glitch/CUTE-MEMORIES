@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import mimetypes
+import os
 import re
 import cgi
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -181,6 +182,6 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = 8081
+    port = int(os.environ.get("PORT", "8081"))
     print(f"Cute Memories is running at http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
