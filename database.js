@@ -1,69 +1,43 @@
-/* Browser persistence for Cute Memories. IndexedDB holds large photo blobs. */
+/* Server-backed photo persistence shared by every visitor. */
 (function () {
-  const DB_NAME = 'CuteMemoriesDB';
-  const DB_VERSION = 1;
-  const STORE = 'photos';
-  let connection;
-
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      if (!window.indexedDB) return reject(new Error('IndexedDB is unavailable in this browser.'));
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE, { keyPath: 'id' });
-        }
-      };
-      request.onsuccess = () => { connection = request.result; resolve(connection); };
-      request.onerror = () => reject(request.error);
-      request.onblocked = () => reject(new Error('Photo storage is busy in another tab.'));
+  function request(path, options = {}) {
+    const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
+    return fetch(`${baseUrl}${path}`, options).then(async response => {
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+      return body;
     });
   }
 
-  async function getDB() {
-    if (connection) return connection;
-    return openDB();
-  }
-
-  function transaction(mode, action) {
-    return getDB().then(db => new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const store = tx.objectStore(STORE);
-      action(store, resolve, reject);
-      tx.onabort = () => reject(tx.error || new Error('Storage transaction aborted.'));
-      tx.onerror = () => reject(tx.error || new Error('Storage transaction failed.'));
-    }));
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Could not read the photo.'));
+      reader.readAsDataURL(blob);
+    });
   }
 
   window.MemoryDB = {
     async getAll() {
-      return transaction('readonly', (store, resolve, reject) => {
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => reject(req.error);
-      });
+      const result = await request('/api/photos');
+      return result.photos || [];
     },
     async put(photo) {
-      return transaction('readwrite', (store, resolve, reject) => {
-        const req = store.put(photo);
-        req.onsuccess = () => resolve(photo);
-        req.onerror = () => reject(req.error);
+      const payload = { ...photo, image: photo.image || (photo.blob ? await blobToDataUrl(photo.blob) : '') };
+      delete payload.blob;
+      await request('/api/photos', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
+      return photo;
     },
     async delete(id) {
-      return transaction('readwrite', (store, resolve, reject) => {
-        const req = store.delete(id);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
+      await request(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     async clear() {
-      return transaction('readwrite', (store, resolve, reject) => {
-        const req = store.clear();
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      });
+      await request('/api/photos', { method: 'DELETE' });
     }
   };
 

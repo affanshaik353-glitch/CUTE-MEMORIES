@@ -48,7 +48,10 @@
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
-  function photoURL(photo) { return URL.createObjectURL(photo.blob); }
+  function photoURL(photo) {
+    if (photo.image) return photo.image;
+    return photo.blob ? URL.createObjectURL(photo.blob) : '';
+  }
 
   async function loadPhotos() {
     try {
@@ -488,6 +491,14 @@
     applyTheme(MemoryStore.get(KEYS.theme, null));
     visitorId();
     setTimeout(() => $('#loader').classList.add('loaded'), 500);
+    window.setInterval(async () => {
+      const previousIds = photos.map(photo => photo.id).join('|');
+      await loadPhotos();
+      if (photos.map(photo => photo.id).join('|') !== previousIds) {
+        renderGallery();
+        renderAlbums();
+      }
+    }, 15000);
   }
   init();
 })();

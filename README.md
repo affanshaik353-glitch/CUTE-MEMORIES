@@ -4,14 +4,14 @@ A complete responsive, browser-based photo gallery built with HTML, CSS, and van
 
 ## Run locally
 
-Serve the folder with any static server. For example:
+Run the included Python server:
 
 ```bash
 cd Cute-Memories
-python -m http.server 8080
+python server.py
 ```
 
-Then open `http://localhost:8080`. Camera capture requires HTTPS or localhost.
+Then open `http://localhost:8081`. Uploaded photos are stored in `data/photos.json` and `data/photos/`, so every visitor to the same website can see them. Camera capture requires HTTPS or localhost.
 
 ## Demo administrator
 
@@ -22,4 +22,4 @@ These credentials are hardcoded JavaScript for local demonstration only. They ar
 
 ## Features
 
-Photos and their binary data are stored in IndexedDB. Comments, likes, album metadata, visitor identity, and theme settings use LocalStorage. Use the same browser/profile to retain all data. Clearing site data removes it.
+Photos and their metadata are stored on the server. Comments, likes, album metadata, visitor identity, and theme settings still use browser LocalStorage and do not sync between visitors unless a server database is added.
