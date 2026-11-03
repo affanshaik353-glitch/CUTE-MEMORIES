@@ -213,7 +213,8 @@
         body: JSON.stringify({
           user: $('#adminUser').value.trim(),
           password: $('#adminPassword').value
-        })
+        }),
+        signal: AbortSignal.timeout(15000)
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Invalid administrator credentials.');
@@ -222,7 +223,10 @@
       $('#loginDialog').close(); $('#loginForm').reset();
       updateAdminUI(); openDashboard(); toast('Welcome back, Administrator!');
     } catch (error) {
-      $('#loginError').textContent = error.message; setTimeout(() => { $('#loginError').textContent = ''; }, 3000);
+      $('#loginError').textContent = window.location.hostname.endsWith('github.io')
+        ? 'Photo service is not deployed yet. Configure the Render API first.'
+        : error.message;
+      setTimeout(() => { $('#loginError').textContent = ''; }, 5000);
     }
   });
   function logout() {
