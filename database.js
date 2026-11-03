@@ -102,7 +102,13 @@
     async function getAll() {
       const manifest = await fetch(rawUrl(manifestPath), { cache: 'no-store' });
       if (!manifest.ok) return [];
-      const photos = await manifest.json();
+      let photos;
+      try {
+        photos = await manifest.json();
+      } catch (_) {
+        return [];
+      }
+      if (!Array.isArray(photos) || photos.length === 0) return [];
       return photos.map(photo => ({ ...photo, imageUrl: rawUrl(photo.path) }));
     }
 
