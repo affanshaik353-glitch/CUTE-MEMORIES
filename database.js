@@ -220,12 +220,10 @@
 
   window.MemoryDB = {
     async getAll() {
-      if (window.location.hostname.endsWith('github.io')) return githubPhotos.getAll();
       const result = await request('/api/photos');
       return result.photos || [];
     },
     async put(photo) {
-      if (window.location.hostname.endsWith('github.io')) return githubPhotos.put(photo);
       let blob = photo.blob;
       if (!blob && photo.image) {
         blob = await fetch(photo.image).then(response => response.blob());
@@ -262,11 +260,9 @@
       return photo;
     },
     async delete(id) {
-      if (window.location.hostname.endsWith('github.io')) return githubPhotos.delete(id);
       await request(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     async clear() {
-      if (window.location.hostname.endsWith('github.io')) return githubPhotos.clear();
       await request('/api/photos', { method: 'DELETE' });
     }
   };
