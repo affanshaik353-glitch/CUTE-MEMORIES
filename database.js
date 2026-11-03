@@ -4,7 +4,8 @@
     const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 180000);
-    return fetch(`${baseUrl}${path}`, { ...options, signal: controller.signal }).then(async response => {
+    const cacheMode = options.method && options.method !== 'GET' ? 'no-store' : 'no-cache';
+    return fetch(`${baseUrl}${path}`, { ...options, cache: cacheMode, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
       return body;
