@@ -1,6 +1,16 @@
 # CUTE MEMORIES ❤️
 
-A complete responsive photo gallery built with HTML, CSS, vanilla JavaScript, and a small shared Node/Python-style persistence backend.
+A complete responsive photo gallery built with HTML, CSS, vanilla JavaScript, and a shared Python persistence backend.
+
+## Deploy the shared API
+
+1. Open the Render Blueprint page:
+   `https://dashboard.render.com/select-repo?type=blueprint&repo=https://github.com/affanshaik353-glitch/CUTE-MEMORIES`
+2. Select the repository and deploy `cute-memories-api`.
+3. Set the `ADMIN_PASSWORD` environment variable on Render.
+4. Copy the service's HTTPS URL.
+5. Update the `CUTE_MEMORIES_API_BASE` value in `index.html`.
+6. Push the frontend update so GitHub Pages uses the API.
 
 ## Publish for free with GitHub Pages
 

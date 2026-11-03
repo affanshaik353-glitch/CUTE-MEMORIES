@@ -251,8 +251,8 @@
       $('#loginDialog').close(); $('#loginForm').reset();
       updateAdminUI(); openDashboard(); toast('Welcome back, Administrator!');
     } catch (error) {
-      $('#loginError').textContent = window.location.hostname.endsWith('github.io')
-        ? 'Photo service is not deployed yet. Configure the Render API first.'
+      $('#loginError').textContent = error.message.includes('404') || /Could not connect/.test(error.message)
+        ? 'The shared photo API is unavailable. Deploy render.yaml as the "cute-memories-api" Render service and configure its HTTPS URL.'
         : error.message;
       setTimeout(() => { $('#loginError').textContent = ''; }, 5000);
     }
