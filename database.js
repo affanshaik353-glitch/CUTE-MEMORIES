@@ -25,16 +25,34 @@
         blob = await fetch(photo.image).then(response => response.blob());
       }
       if (!blob) throw new Error('The photo file is missing.');
-      const form = new FormData();
-      form.append('id', photo.id);
-      form.append('title', photo.title || '');
-      form.append('description', photo.description || '');
-      form.append('album', photo.album || '');
-      form.append('createdAt', photo.createdAt || new Date().toISOString());
-      form.append('photo', blob, `${photo.id}.${blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'}`);
+      const chunkSize = 8 * 1024 * 1024;
+      const chunkCount = Math.ceil(blob.size / chunkSize);
+      for (let index = 0; index < chunkCount; index++) {
+        const chunk = blob.slice(index * chunkSize, (index + 1) * chunkSize);
+        await request('/api/photos/chunk', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': blob.type || 'application/octet-stream',
+            'X-Photo-Id': photo.id,
+            'X-Chunk-Index': String(index),
+            'X-Chunk-Count': String(chunkCount)
+          },
+          body: chunk
+        });
+      }
       await request('/api/photos', {
         method: 'PUT',
-        body: form
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          complete: true,
+          id: photo.id,
+          chunkCount,
+          type: blob.type || 'image/jpeg',
+          title: photo.title || '',
+          description: photo.description || '',
+          album: photo.album || '',
+          createdAt: photo.createdAt || new Date().toISOString()
+        })
       });
       return photo;
     },

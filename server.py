@@ -11,9 +11,11 @@ from urllib.parse import unquote, urlparse
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 PHOTO_DIR = DATA / "photos"
+CHUNK_DIR = DATA / "chunks"
 INDEX = DATA / "photos.json"
 MAX_PHOTO_BYTES = 30 * 1024 * 1024 * 1024
 PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
     INDEX.write_text("[]", encoding="utf-8")
 
@@ -31,6 +33,12 @@ def save_photos(photos):
 
 def stored_bytes():
     return sum(path.stat().st_size for path in PHOTO_DIR.glob("*.bin") if path.is_file())
+
+
+def chunk_dir(photo_id):
+    directory = CHUNK_DIR / photo_id
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def photo_file(photo_id):
@@ -86,50 +94,59 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_PUT(self):
-        if urlparse(self.path).path != "/api/photos":
-            self.send_json(404, {"error": "Not found."})
-            return
+        request_path = urlparse(self.path).path
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length > MAX_PHOTO_BYTES + (4 * 1024 * 1024):
-                raise ValueError("Upload exceeds the 30 GB limit.")
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers.get("Content-Type"), "CONTENT_LENGTH": str(length)}
-            )
-            def field(name):
-                item = form[name]
-                return item.value if item is not None and hasattr(item, "value") else ""
-            payload = {name: field(name) for name in ("id", "title", "description", "album", "createdAt")}
-            upload = form["photo"]
-            photo_id = payload.get("id", "")
+            if request_path == "/api/photos/chunk":
+                photo_id = self.headers.get("X-Photo-Id", "")
+                index = int(self.headers.get("X-Chunk-Index", "-1"))
+                chunk_count = int(self.headers.get("X-Chunk-Count", "0"))
+                if not re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII) or index < 0 or chunk_count < 1 or length > 9 * 1024 * 1024:
+                    raise ValueError("Invalid upload chunk.")
+                chunk_dir(photo_id).joinpath(f"{index}.part").write_bytes(self.rfile.read(length))
+                self.send_json(200, {"ok": True})
+                return
+
+            if request_path != "/api/photos":
+                self.send_json(404, {"error": "Not found."})
+                return
+            payload = json.loads(self.rfile.read(length))
+            if not payload.get("complete"):
+                raise ValueError("Upload must be completed in chunks.")
+            photo_id = payload["id"]
             if not re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII):
                 raise ValueError("Invalid photo ID.")
-            if upload is None or not getattr(upload, "filename", None):
-                raise ValueError("Photo file is missing.")
-            image_type = upload.type.lower() if upload.type in ("image/jpeg", "image/png", "image/webp") else ""
-            if not image_type:
-                raise ValueError("Invalid photo data.")
-            file_data = upload.file.read()
-            old_file = photo_file(photo_id)
-            projected_size = stored_bytes() + len(file_data)
-            if old_file.exists():
-                projected_size -= old_file.stat().st_size
-            if projected_size > MAX_PHOTO_BYTES:
+            source_dir = chunk_dir(photo_id)
+            chunk_count = int(payload["chunkCount"])
+            chunks = [source_dir.joinpath(f"{index}.part") for index in range(chunk_count)]
+            if chunk_count < 1 or any(not chunk.exists() for chunk in chunks):
+                raise ValueError("One or more upload chunks are missing.")
+            total_size = sum(chunk.stat().st_size for chunk in chunks)
+            output = photo_file(photo_id)
+            old_size = output.stat().st_size if output.exists() else 0
+            if stored_bytes() - old_size + total_size > MAX_PHOTO_BYTES:
                 raise ValueError("The 30 GB gallery storage limit has been reached.")
-            old_file.write_bytes(file_data)
+            with output.open("wb") as destination:
+                for chunk in chunks:
+                    with chunk.open("rb") as source:
+                        while True:
+                            block = source.read(1024 * 1024)
+                            if not block:
+                                break
+                            destination.write(block)
+            for chunk in chunks:
+                chunk.unlink(missing_ok=True)
+            source_dir.rmdir()
+            photos = load_photos()
             metadata = {
                 "id": photo_id,
                 "title": str(payload.get("title", ""))[:80],
                 "description": str(payload.get("description", ""))[:300],
                 "album": str(payload.get("album", ""))[:80],
                 "createdAt": str(payload.get("createdAt", "")),
-                "type": image_type
+                "type": payload.get("type", "image/jpeg")
             }
-            photos = [photo for photo in load_photos() if photo["id"] != photo_id]
-            photos.append(metadata)
-            save_photos(photos)
+            save_photos([photo for photo in photos if photo["id"] != photo_id] + [metadata])
             self.send_json(200, {"ok": True})
         except (ValueError, json.JSONDecodeError, binascii.Error) as error:
             self.send_json(400, {"error": str(error)})
