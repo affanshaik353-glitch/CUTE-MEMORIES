@@ -11,3 +11,11 @@ services:
         value: 3.12.10
       - key: PORT
         value: 10000
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: cute-memories

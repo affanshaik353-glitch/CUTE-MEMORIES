@@ -5,6 +5,8 @@ import mimetypes
 import os
 import re
 import cgi
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -20,8 +22,40 @@ CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
     INDEX.write_text("[]", encoding="utf-8")
 
+R2_ENABLED = bool(os.environ.get("R2_ACCESS_KEY_ID") and os.environ.get("R2_SECRET_ACCESS_KEY"))
+R2_BUCKET = os.environ.get("R2_BUCKET", "")
+
+
+def r2_client():
+    account_id = os.environ["R2_ACCOUNT_ID"]
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto"
+    )
+
+
+def r2_key(photo_id):
+    return f"photos/{Path(photo_id).name}.bin"
+
+
+def r2_object_exists(photo_id):
+    try:
+        r2_client().head_object(Bucket=R2_BUCKET, Key=r2_key(photo_id))
+        return True
+    except (BotoCoreError, ClientError):
+        return False
+
 
 def load_photos():
+    if R2_ENABLED:
+        try:
+            body = r2_client().get_object(Bucket=R2_BUCKET, Key="photos.json")["Body"].read()
+            return json.loads(body.decode("utf-8"))
+        except (BotoCoreError, ClientError, json.JSONDecodeError, KeyError):
+            return []
     try:
         return json.loads(INDEX.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
@@ -29,10 +63,24 @@ def load_photos():
 
 
 def save_photos(photos):
+    if R2_ENABLED:
+        r2_client().put_object(
+            Bucket=R2_BUCKET,
+            Key="photos.json",
+            Body=(json.dumps(photos, indent=2) + "\n").encode("utf-8"),
+            ContentType="application/json"
+        )
+        return
     INDEX.write_text(json.dumps(photos, indent=2) + "\n", encoding="utf-8")
 
 
 def stored_bytes():
+    if R2_ENABLED:
+        total = 0
+        paginator = r2_client().get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET, Prefix="photos/"):
+            total += sum(item.get("Size", 0) for item in page.get("Contents", []))
+        return total
     return sum(path.stat().st_size for path in PHOTO_DIR.glob("*.bin") if path.is_file())
 
 
@@ -73,13 +121,31 @@ class Handler(SimpleHTTPRequestHandler):
             photos = []
             for photo in load_photos():
                 image = photo_file(photo["id"])
-                if image.exists():
+                if (R2_ENABLED and r2_object_exists(photo["id"])) or (not R2_ENABLED and image.exists()):
                     photos.append({**photo, "imageUrl": f'/api/photos/{photo["id"]}/image'})
             self.send_json(200, {"photos": photos})
             return
         path = urlparse(self.path).path
         if path.startswith("/api/photos/") and path.endswith("/image"):
             photo_id = unquote(path[len("/api/photos/"):-len("/image")])
+            if R2_ENABLED and re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII):
+                try:
+                    response = r2_client().get_object(Bucket=R2_BUCKET, Key=r2_key(photo_id))
+                    body = response["Body"]
+                    self.send_response(200)
+                    self.send_header("Content-Type", response.get("ContentType", "application/octet-stream"))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    while True:
+                        block = body.read(1024 * 1024)
+                        if not block:
+                            break
+                        self.wfile.write(block)
+                    body.close()
+                    return
+                except (BotoCoreError, ClientError):
+                    pass
             if re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII) and photo_file(photo_id).exists():
                 photo = next((item for item in load_photos() if item["id"] == photo_id), None)
                 if photo:
@@ -144,6 +210,16 @@ class Handler(SimpleHTTPRequestHandler):
                             if not block:
                                 break
                             destination.write(block)
+            if R2_ENABLED:
+                with output.open("rb") as source:
+                    r2_client().put_object(
+                        Bucket=R2_BUCKET,
+                        Key=r2_key(photo_id),
+                        Body=source.read(),
+                        ContentType=payload.get("type", "image/jpeg"),
+                        CacheControl="public, max-age=86400"
+                    )
+                output.unlink(missing_ok=True)
             for chunk in chunks:
                 chunk.unlink(missing_ok=True)
             source_dir.rmdir()
@@ -168,6 +244,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/photos":
             for photo in load_photos():
                 photo_file(photo["id"]).unlink(missing_ok=True)
+                if R2_ENABLED:
+                    r2_client().delete_object(Bucket=R2_BUCKET, Key=r2_key(photo["id"]))
             save_photos([])
             self.send_json(200, {"ok": True})
             return
@@ -175,6 +253,8 @@ class Handler(SimpleHTTPRequestHandler):
             photo_id = unquote(path[len("/api/photos/"):])
             if re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII):
                 photo_file(photo_id).unlink(missing_ok=True)
+                if R2_ENABLED:
+                    r2_client().delete_object(Bucket=R2_BUCKET, Key=r2_key(photo_id))
                 save_photos([photo for photo in load_photos() if photo["id"] != photo_id])
                 self.send_json(200, {"ok": True})
                 return
