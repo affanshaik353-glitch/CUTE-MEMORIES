@@ -3,7 +3,7 @@
   function request(path, options = {}) {
     const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 180000);
     return fetch(`${baseUrl}${path}`, { ...options, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
@@ -14,27 +14,27 @@
     }).finally(() => clearTimeout(timeout));
   }
 
-  function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error || new Error('Could not read the photo.'));
-      reader.readAsDataURL(blob);
-    });
-  }
-
   window.MemoryDB = {
     async getAll() {
       const result = await request('/api/photos');
       return result.photos || [];
     },
     async put(photo) {
-      const payload = { ...photo, image: photo.image || (photo.blob ? await blobToDataUrl(photo.blob) : '') };
-      delete payload.blob;
+      let blob = photo.blob;
+      if (!blob && photo.image) {
+        blob = await fetch(photo.image).then(response => response.blob());
+      }
+      if (!blob) throw new Error('The photo file is missing.');
+      const form = new FormData();
+      form.append('id', photo.id);
+      form.append('title', photo.title || '');
+      form.append('description', photo.description || '');
+      form.append('album', photo.album || '');
+      form.append('createdAt', photo.createdAt || new Date().toISOString());
+      form.append('photo', blob, `${photo.id}.${blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg'}`);
       await request('/api/photos', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: form
       });
       return photo;
     },

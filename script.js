@@ -49,6 +49,7 @@
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   }
   function photoURL(photo) {
+    if (photo.imageUrl) return `${window.CUTE_MEMORIES_API_BASE || ''}${photo.imageUrl}`;
     if (photo.image) return photo.image;
     return photo.blob ? URL.createObjectURL(photo.blob) : '';
   }

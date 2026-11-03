@@ -3,6 +3,7 @@ import binascii
 import json
 import mimetypes
 import re
+import cgi
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -59,10 +60,24 @@ class Handler(SimpleHTTPRequestHandler):
             for photo in load_photos():
                 image = photo_file(photo["id"])
                 if image.exists():
-                    encoded = base64.b64encode(image.read_bytes()).decode("ascii")
-                    photos.append({**photo, "image": f'data:{photo["type"]};base64,{encoded}'})
+                    photos.append({**photo, "imageUrl": f'/api/photos/{photo["id"]}/image'})
             self.send_json(200, {"photos": photos})
             return
+        path = urlparse(self.path).path
+        if path.startswith("/api/photos/") and path.endswith("/image"):
+            photo_id = unquote(path[len("/api/photos/"):-len("/image")])
+            if re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII) and photo_file(photo_id).exists():
+                photo = next((item for item in load_photos() if item["id"] == photo_id), None)
+                if photo:
+                    body = photo_file(photo_id).read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", photo["type"])
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
         super().do_GET()
 
     def do_PUT(self):
@@ -70,18 +85,26 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(404, {"error": "Not found."})
             return
         try:
-            length = min(int(self.headers.get("Content-Length", "0")), 30 * 1024 * 1024)
-            payload = json.loads(self.rfile.read(length))
+            length = min(int(self.headers.get("Content-Length", "0")), 35 * 1024 * 1024)
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers.get("Content-Type"), "CONTENT_LENGTH": str(length)}
+            )
+            def field(name):
+                item = form[name]
+                return item.value if item is not None and hasattr(item, "value") else ""
+            payload = {name: field(name) for name in ("id", "title", "description", "album", "createdAt")}
+            upload = form["photo"]
             photo_id = payload.get("id", "")
-            image = payload.get("image", "")
             if not re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII):
                 raise ValueError("Invalid photo ID.")
-            match = re.fullmatch(r"data:(image/(?:jpeg|png|webp));base64,(.+)", image, re.IGNORECASE | re.DOTALL)
-            if not match:
+            if upload is None or not getattr(upload, "filename", None):
+                raise ValueError("Photo file is missing.")
+            image_type = upload.type.lower() if upload.type in ("image/jpeg", "image/png", "image/webp") else ""
+            if not image_type:
                 raise ValueError("Invalid photo data.")
-
-            image_type = match.group(1).lower()
-            photo_file(photo_id).write_bytes(base64.b64decode(match.group(2)))
+            photo_file(photo_id).write_bytes(upload.file.read())
             metadata = {
                 "id": photo_id,
                 "title": str(payload.get("title", ""))[:80],
