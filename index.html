@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8b4d9">
+  <meta name="description" content="Cute Memories - a private, browser-based photo memory gallery.">
+  <title>CUTE MEMORIES ❤️ – Every Picture Tells a Story.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Pacifico&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="siteTheme" aria-hidden="true"></div>
+  <div class="floating-decor" aria-hidden="true">♥ <span>✦</span> ♡ <span>❀</span> ✨</div>
+  <header class="topbar">
+    <a class="brand" href="#home" aria-label="Cute Memories home"><span>♡</span> Cute Memories</a>
+    <button id="menuToggle" class="icon-button menu-toggle" aria-label="Open navigation" aria-expanded="false">☰</button>
+    <nav id="mainNav" aria-label="Main navigation">
+      <a href="#home" class="nav-link active">Home</a>
+      <a href="#memories" class="nav-link">Memories</a>
+      <a href="#albums" class="nav-link">Albums</a>
+      <a href="#most-liked" class="nav-link">Most Liked</a>
+      <a href="#about" class="nav-link">About Us</a>
+      <button id="dashboardNav" class="nav-link hidden" data-view="dashboard">Admin Dashboard</button>
+      <button id="addPhotosNav" class="nav-link hidden">Add Photos</button>
+      <button id="capturePhotoNav" class="nav-link hidden">Capture Photo</button>
+      <button id="themeNav" class="nav-link hidden">Change Theme 🎨</button>
+      <button id="adminLoginNav" class="primary-nav-button">Admin Login</button>
+      <button id="logoutNav" class="nav-link hidden">Logout</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="home" class="hero page-section">
+      <div class="hero-copy">
+        <p class="eyebrow">A little world of moments</p>
+        <h1>Welcome to Our<br><em>Cute Memories</em> <span class="heart-pulse">❤️</span></h1>
+        <p class="subtitle">Every Picture Tells a Beautiful Story.</p>
+        <a href="#memories" class="hero-button">Explore our memories <span>→</span></a>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="polaroid polaroid-one"><div></div><span>✨</span></div>
+        <div class="polaroid polaroid-two"><div></div><span>♡</span></div>
+        <div class="orbit orbit-one">♥</div><div class="orbit orbit-two">✦</div>
+      </div>
+    </section>
+
+    <section id="memories" class="content-section page-section">
+      <div class="section-heading">
+        <div><p class="eyebrow">Our story in snapshots</p><h2>Sweet Memories</h2></div>
+        <div class="gallery-tools">
+          <label class="search-box"><span>⌕</span><input id="gallerySearch" type="search" placeholder="Search memories..." aria-label="Search memories"></label>
+          <select id="gallerySort" aria-label="Sort memories">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="liked">Most liked</option>
+          </select>
+        </div>
+      </div>
+      <div id="gallery" class="photo-grid" aria-live="polite"></div>
+      <div id="galleryEmpty" class="empty-state hidden">
+        <div class="empty-art">📷<span>♡</span></div>
+        <h3>No memories here yet</h3><p>Beautiful moments are waiting to be added.</p>
+      </div>
+    </section>
+
+    <section id="albums" class="content-section page-section">
+      <div class="section-heading"><div><p class="eyebrow">Collected with love</p><h2>Memory Albums</h2></div></div>
+      <div id="albumGrid" class="album-grid"></div>
+    </section>
+
+    <section id="most-liked" class="content-section page-section">
+      <div class="section-heading"><div><p class="eyebrow">The moments you loved</p><h2>Most Liked</h2></div></div>
+      <div id="likedGallery" class="photo-grid"></div>
+    </section>
+
+    <section id="about" class="about-section page-section">
+      <div class="about-flower">🌸</div>
+      <p class="eyebrow">Forever & always</p>
+      <h2>Memories Never Fade <span>❤️</span></h2>
+      <p>Some moments become memories, some memories become stories, and some photographs keep those beautiful stories alive forever.</p>
+    </section>
+  </main>
+
+  <section id="dashboard" class="dashboard hidden" aria-label="Admin dashboard">
+    <aside class="dashboard-sidebar">
+      <div><span class="dashboard-logo">♡</span><strong>Memories Admin</strong></div>
+      <button class="admin-tab active" data-tab="overview">Overview</button>
+      <button class="admin-tab" data-tab="photos">Add Photos</button>
+      <button class="admin-tab" data-tab="manage">Manage Photos</button>
+      <button class="admin-tab" data-tab="camera">Capture Photo</button>
+      <button class="admin-tab" data-tab="albums">Manage Albums</button>
+      <button class="admin-tab" data-tab="theme">Change Theme 🎨</button>
+      <button id="closeDashboard" class="dashboard-close">Back to website</button>
+    </aside>
+    <div class="dashboard-main">
+      <div class="dashboard-header"><div><p>Welcome back,</p><h2>Administrator ❤️</h2></div><button id="adminLogout" class="secondary-button">Logout</button></div>
+      <div id="adminContent"></div>
+    </div>
+  </section>
+
+  <dialog id="loginDialog" class="modal">
+    <button class="modal-close" data-close="loginDialog" aria-label="Close">×</button>
+    <div class="login-art">♡</div>
+    <h2>Admin Login</h2><p>Only for the keeper of these memories.</p>
+    <form id="loginForm">
+      <label>Admin User ID<input id="adminUser" autocomplete="username" required></label>
+      <label>Password<div class="password-wrap"><input id="adminPassword" type="password" autocomplete="current-password" required><button type="button" id="togglePassword" aria-label="Show password">◉</button></div></label>
+      <p id="loginError" class="form-error" role="alert"></p>
+      <button class="form-button" type="submit">Enter Dashboard</button>
+    </form>
+  </dialog>
+
+  <dialog id="lightbox" class="lightbox">
+    <button class="lightbox-close" aria-label="Close photo">×</button>
+    <button class="lightbox-nav lightbox-prev" aria-label="Previous photo">‹</button>
+    <figure><img id="lightboxImage" alt=""><figcaption><h3 id="lightboxTitle"></h3><p id="lightboxDescription"></p><small id="lightboxDate"></small></figcaption></figure>
+    <button class="lightbox-nav lightbox-next" aria-label="Next photo">›</button>
+  </dialog>
+
+  <dialog id="commentsDialog" class="modal comments-modal">
+    <button class="modal-close" data-close="commentsDialog" aria-label="Close">×</button>
+    <h2>Memory comments <span id="commentPhotoTitle"></span></h2>
+    <div id="commentsList" class="comments-list"></div>
+    <form id="commentForm">
+      <label>Nickname<input id="commentNickname" maxlength="30" required></label>
+      <label>Your memory<textarea id="commentText" maxlength="500" required></textarea></label>
+      <small><span id="commentChars">0</span>/500</small>
+      <button class="form-button" type="submit">Post Comment ♡</button>
+    </form>
+  </dialog>
+
+  <dialog id="albumDialog" class="modal">
+    <button class="modal-close" data-close="albumDialog" aria-label="Close">×</button>
+    <h2 id="albumDialogTitle">Album memories</h2>
+    <div id="albumDialogPhotos" class="photo-grid compact"></div>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+  <div id="loader" class="page-loader"><div class="loader-heart">♡</div><span>Loading memories...</span></div>
+  <script src="database.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
