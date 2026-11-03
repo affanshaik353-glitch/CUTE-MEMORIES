@@ -2,7 +2,7 @@ services:
   - type: web
     name: cute-memories-api
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
     healthCheckPath: /api/photos
@@ -11,7 +11,3 @@ services:
         value: 3.12.10
       - key: PORT
         value: 10000
-    disk:
-      name: cute-memories-storage
-      mountPath: /opt/render/project/src/data
-      sizeGB: 30
