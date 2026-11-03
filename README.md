@@ -1,13 +1,13 @@
 # CUTE MEMORIES ❤️
 
-A complete responsive, browser-based photo gallery built with HTML, CSS, and vanilla JavaScript.
+A complete responsive photo gallery built with HTML, CSS, vanilla JavaScript, and a small shared Node/Python-style persistence backend.
 
 ## Publish for free with GitHub Pages
 
 1. Push this folder to a GitHub repository named `CUTE-MEMORIES`.
 2. In GitHub, open **Settings -> Pages**, choose **GitHub Actions** as the source, and run the included **Deploy to GitHub Pages** workflow.
 3. Open the Pages URL shown in **Settings -> Pages**.
-4. When the admin uploads a photo from GitHub Pages, create a fine-grained GitHub token with repository **Contents** read/write permission. Enter it when prompted; it is kept only for the current browser tab.
+4. Deploy the Python API separately and set `window.CUTE_MEMORIES_API_BASE` in `index.html` to the API HTTPS URL. GitHub Pages can host only the frontend; it cannot securely host the admin API.
 
 This deployment uses GitHub Pages and repository storage, so there is no paid server, database, or object-storage service to maintain. Public visitors can view photos without a token; uploads and deletes require an authorized repository token.
 
@@ -31,4 +31,4 @@ These credentials are hardcoded JavaScript for local demonstration only. They ar
 
 ## Features
 
-Photos and their metadata are stored on the server. Comments, likes, album metadata, visitor identity, and theme settings still use browser LocalStorage and do not sync between visitors unless a server database is added.
+When an API is connected, photos, likes, comments, album metadata, and theme settings are stored on the server and synchronized between visitors. IndexedDB is retained as a development fallback only and does not synchronize devices.

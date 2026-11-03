@@ -58,9 +58,25 @@
     try {
       photos = await MemoryDB.getAll();
       photos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      await syncSharedState();
     } catch (error) {
       toast(`Photo server error: ${error.message}`, true);
       photos = [];
+    }
+
+    async function syncSharedState() {
+      if (!window.cuteMemoriesServerAvailable) return;
+      try {
+        const state = await MemoryDB.getState();
+        MemoryStore.set(KEYS.likes, state.likes || {});
+        MemoryStore.set(KEYS.likedBy, state.likedBy || {});
+        MemoryStore.set(KEYS.comments, state.comments || {});
+        MemoryStore.set(KEYS.albums, state.albums && state.albums.length ? state.albums : DEFAULT_ALBUMS);
+        MemoryStore.set(KEYS.theme, state.theme || {});
+        if (typeof applyTheme === 'function') applyTheme(state.theme && Object.keys(state.theme).length ? state.theme : null);
+      } catch (error) {
+        console.warn(error.message);
+      }
     }
   }
 
@@ -108,15 +124,21 @@
   }
 
   function toggleLike(id) {
-    const byVisitor = MemoryStore.get(KEYS.likedBy, {});
-    if (!byVisitor[visitorId()]) byVisitor[visitorId()] = [];
-    const list = byVisitor[visitorId()];
-    const index = list.indexOf(id);
-    if (index >= 0) { list.splice(index, 1); setLike(id, Math.max(0, getLikes(id) - 1)); }
-    else { list.push(id); setLike(id, getLikes(id) + 1); }
-    MemoryStore.set(KEYS.likedBy, byVisitor);
-    renderGallery();
-    if ($('#dashboard').classList.contains('hidden') === false) renderAdminCurrent();
+    if (!window.cuteMemoriesServerAvailable) {
+      const byVisitor = MemoryStore.get(KEYS.likedBy, {});
+      if (!byVisitor[visitorId()]) byVisitor[visitorId()] = [];
+      const list = byVisitor[visitorId()];
+      const index = list.indexOf(id);
+      if (index >= 0) { list.splice(index, 1); setLike(id, Math.max(0, getLikes(id) - 1)); }
+      else { list.push(id); setLike(id, getLikes(id) + 1); }
+      MemoryStore.set(KEYS.likedBy, byVisitor);
+      renderGallery();
+      return;
+    }
+    MemoryDB.toggleLike(id, visitorId()).then(syncSharedState).then(() => {
+      renderGallery();
+      if (!$('#dashboard').classList.contains('hidden')) renderAdminCurrent();
+    }).catch(error => toast(error.message, true));
   }
 
   function renderAlbums() {
@@ -184,15 +206,21 @@
     });
   }
   $('#commentText').addEventListener('input', () => { $('#commentChars').textContent = $('#commentText').value.length; });
-  $('#commentForm').addEventListener('submit', event => {
+  $('#commentForm').addEventListener('submit', async event => {
     event.preventDefault();
     const name = $('#commentNickname').value.trim();
     const text = $('#commentText').value.trim();
     if (!name || !text) return toast('Please enter a nickname and comment.', true);
-    const all = MemoryStore.get(KEYS.comments, {});
-    if (!all[commentPhotoId]) all[commentPhotoId] = [];
-    all[commentPhotoId].push({ id: uid('comment'), name, text, createdAt: new Date().toISOString() });
-    if (!MemoryStore.set(KEYS.comments, all)) return toast('Could not save your comment because browser storage is full.', true);
+    if (window.cuteMemoriesServerAvailable) {
+      await MemoryDB.addComment(commentPhotoId, name, text).catch(error => { toast(error.message, true); });
+      await syncSharedState();
+      renderGallery();
+    } else {
+      const all = MemoryStore.get(KEYS.comments, {});
+      if (!all[commentPhotoId]) all[commentPhotoId] = [];
+      all[commentPhotoId].push({ id: uid('comment'), name, text, createdAt: new Date().toISOString() });
+      if (!MemoryStore.set(KEYS.comments, all)) return toast('Could not save your comment because browser storage is full.', true);
+    }
     $('#commentForm').reset(); $('#commentChars').textContent = '0'; renderComments(); renderGallery(); toast('Your sweet comment was added.');
   });
 
@@ -343,7 +371,7 @@
       $('.manage-list').append(row);
     });
   }
-  function deleteComment(photoId) {
+  async function deleteComment(photoId) {
     const photo = photos.find(item => item.id === photoId);
     const items = comments(photoId);
     if (!items.length) return toast('This photo has no comments.');
@@ -353,10 +381,15 @@
     const index = Number(choice) - 1;
     if (!Number.isInteger(index) || index < 0 || index >= items.length) return toast('Invalid comment number.', true);
     if (!confirm(`Delete the comment by "${items[index].name}"?`)) return;
-    items.splice(index, 1);
-    const all = MemoryStore.get(KEYS.comments, {});
-    all[photoId] = items;
-    MemoryStore.set(KEYS.comments, all);
+    if (window.cuteMemoriesServerAvailable) {
+      await MemoryDB.deleteComment(items[index].id).catch(error => { toast(error.message, true); return; });
+      await syncSharedState();
+    } else {
+      items.splice(index, 1);
+      const all = MemoryStore.get(KEYS.comments, {});
+      all[photoId] = items;
+      MemoryStore.set(KEYS.comments, all);
+    }
     renderGallery();
     renderManage($('#adminContent'));
     toast('Comment deleted.');
@@ -423,7 +456,7 @@
     $('#createAlbum').addEventListener('click', () => {
       const name = $('#newAlbumName').value.trim(); if (!name) return toast('Enter an album name.', true);
       const list = albums(); if (list.some(item => item.toLowerCase() === name.toLowerCase())) return toast('That album already exists.', true);
-      list.push(name); MemoryStore.set(KEYS.albums, list); $('#newAlbumName').value = ''; renderAlbums(); renderAlbumAdmin(content); toast('Album created.');
+      list.push(name); MemoryStore.set(KEYS.albums, list); if (window.cuteMemoriesServerAvailable) MemoryDB.saveAlbums(list).catch(error => toast(error.message, true)); $('#newAlbumName').value = ''; renderAlbums(); renderAlbumAdmin(content); toast('Album created.');
     });
     const list = $('#albumAdminList');
     albums().forEach(name => {
@@ -437,13 +470,15 @@
   function renameAlbum(oldName) {
     const name = prompt('New album name:', oldName);
     if (!name || !name.trim() || name.trim() === oldName) return;
-    const list = albums(); list[list.indexOf(oldName)] = name.trim(); MemoryStore.set(KEYS.albums, list);
+    const list = albums(); list[list.indexOf(oldName)] = name.trim(); MemoryStore.set(KEYS.albums, list); if (window.cuteMemoriesServerAvailable) MemoryDB.saveAlbums(list).catch(error => toast(error.message, true));
     photos.filter(photo => photo.album === oldName).forEach(photo => { photo.album = name.trim(); MemoryDB.put(photo); });
     setTimeout(async () => { await loadPhotos(); renderAlbums(); renderAlbumAdmin($('#adminContent')); }, 100); toast('Album renamed.');
   }
   async function deleteAlbum(name) {
     if (!confirm(`Delete "${name}"? Photos will be kept and moved to Unsorted.`)) return;
-    MemoryStore.set(KEYS.albums, albums().filter(item => item !== name));
+    const nextAlbums = albums().filter(item => item !== name);
+    MemoryStore.set(KEYS.albums, nextAlbums);
+    if (window.cuteMemoriesServerAvailable) await MemoryDB.saveAlbums(nextAlbums).catch(error => toast(error.message, true));
     for (const photo of photos.filter(item => item.album === name)) { photo.album = ''; await MemoryDB.put(photo); }
     await loadPhotos(); renderAlbums(); renderAlbumAdmin($('#adminContent')); toast('Album deleted.');
   }
@@ -480,9 +515,11 @@
     $('#applyTheme').addEventListener('click', () => {
       const selected = customBackground || theme.background;
       const settings = { name: content.dataset.themeName || theme.name, background:selected, custom: selected.startsWith('url('), brightness:+$('#themeBrightness').value, blur:+$('#themeBlur').value, overlay:+$('#themeOverlay').value };
-      MemoryStore.set(KEYS.theme, settings); applyTheme(settings); toast('Website theme applied.');
+      MemoryStore.set(KEYS.theme, settings); applyTheme(settings);
+      if (window.cuteMemoriesServerAvailable) MemoryDB.saveTheme(settings).catch(error => toast(error.message, true));
+      toast('Website theme applied.');
     });
-    $('#resetTheme').addEventListener('click', () => { MemoryStore.remove(KEYS.theme); applyTheme(null); toast('Theme reset.'); });
+    $('#resetTheme').addEventListener('click', () => { MemoryStore.remove(KEYS.theme); applyTheme(null); if (window.cuteMemoriesServerAvailable) MemoryDB.saveTheme({}).catch(error => toast(error.message, true)); toast('Theme reset.'); });
   }
   function applyTheme(theme) {
     const el = $('#siteTheme'); el.className = ''; el.removeAttribute('style');

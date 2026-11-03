@@ -28,6 +28,7 @@ DATA = ROOT / "data"
 PHOTO_DIR = DATA / "photos"
 CHUNK_DIR = DATA / "chunks"
 INDEX = DATA / "photos.json"
+STATE_INDEX = DATA / "state.json"
 MAX_PHOTO_BYTES = 30 * 1024 * 1024 * 1024
 ADMIN_USER = os.environ.get("ADMIN_USER", "CUTEMEMORIES123")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "CUTE_MEMORIES_123@")
@@ -36,6 +37,24 @@ PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
     INDEX.write_text("[]", encoding="utf-8")
+if not STATE_INDEX.exists():
+    STATE_INDEX.write_text(json.dumps({"likes": {}, "likedBy": {}, "comments": {}, "albums": [], "theme": {}}), encoding="utf-8")
+
+
+def load_state():
+    try:
+        state = json.loads(STATE_INDEX.read_text(encoding="utf-8"))
+        for key in ("likes", "likedBy", "comments"):
+            state.setdefault(key, {})
+        state.setdefault("albums", [])
+        state.setdefault("theme", {})
+        return state
+    except (json.JSONDecodeError, OSError):
+        return {"likes": {}, "likedBy": {}, "comments": {}, "albums": [], "theme": {}}
+
+
+def save_state(state):
+    STATE_INDEX.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 R2_ENABLED = bool(
     boto3
@@ -155,23 +174,70 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/login":
+        request_path = urlparse(self.path).path
+        if request_path == "/api/login":
+            try:
+                payload = read_request_json(self)
+                user_valid = hmac.compare_digest(str(payload.get("user", "")), ADMIN_USER)
+                password_valid = hmac.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD)
+                if not (user_valid and password_valid):
+                    self.send_json(401, {"error": "Invalid administrator credentials."})
+                    return
+                token = secrets.token_urlsafe(32)
+                ADMIN_SESSIONS[token] = time.time() + 12 * 60 * 60
+                self.send_json(200, {"token": token})
+            except (ValueError, json.JSONDecodeError):
+                self.send_json(400, {"error": "Invalid login request."})
+            return
+        if request_path == "/api/state/like":
+            try:
+                payload = read_request_json(self)
+                photo_id = str(payload.get("photoId", ""))[:100]
+                visitor = str(payload.get("visitorId", ""))[:100]
+                if not photo_id or not visitor:
+                    raise ValueError("A photo and visitor are required.")
+                state = load_state()
+                liked = state["likedBy"].setdefault(visitor, [])
+                if photo_id in liked:
+                    liked.remove(photo_id)
+                    state["likes"][photo_id] = max(0, int(state["likes"].get(photo_id, 0)) - 1)
+                    liked_now = False
+                else:
+                    liked.append(photo_id)
+                    state["likes"][photo_id] = int(state["likes"].get(photo_id, 0)) + 1
+                    liked_now = True
+                save_state(state)
+                self.send_json(200, {"liked": liked_now, "count": state["likes"].get(photo_id, 0)})
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if request_path == "/api/state/comments":
+            try:
+                payload = read_request_json(self)
+                photo_id = str(payload.get("photoId", ""))[:100]
+                name = str(payload.get("name", "")).strip()[:30]
+                text = str(payload.get("text", "")).strip()[:500]
+                if not photo_id or not name or not text:
+                    raise ValueError("Name and comment are required.")
+                state = load_state()
+                recent = sum(1 for item in state["comments"].get(photo_id, []) if time.time() - item.get("createdTime", 0) < 60)
+                if recent >= 10:
+                    raise ValueError("Too many comments. Please wait a moment.")
+                comment = {"id": secrets.token_hex(8), "name": name, "text": text, "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "createdTime": time.time()}
+                state["comments"].setdefault(photo_id, []).append(comment)
+                save_state(state)
+                self.send_json(200, {"comment": comment})
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if request_path != "/api/login":
             self.send_json(404, {"error": "Not found."})
             return
-        try:
-            payload = read_request_json(self)
-            user_valid = hmac.compare_digest(str(payload.get("user", "")), ADMIN_USER)
-            password_valid = hmac.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD)
-            if not (user_valid and password_valid):
-                self.send_json(401, {"error": "Invalid administrator credentials."})
-                return
-            token = secrets.token_urlsafe(32)
-            ADMIN_SESSIONS[token] = time.time() + 12 * 60 * 60
-            self.send_json(200, {"token": token})
-        except (ValueError, json.JSONDecodeError):
-            self.send_json(400, {"error": "Invalid login request."})
 
     def do_GET(self):
+        if urlparse(self.path).path == "/api/state":
+            self.send_json(200, load_state())
+            return
         if urlparse(self.path).path == "/api/photos":
             photos = []
             for photo in load_photos():
@@ -217,6 +283,27 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         request_path = urlparse(self.path).path
+        if request_path in ("/api/state/albums", "/api/state/theme"):
+            if not authorized_admin(self):
+                self.send_json(401, {"error": "Administrator login required."})
+                return
+            try:
+                payload = read_request_json(self)
+                state = load_state()
+                if request_path == "/api/state/albums":
+                    state["albums"] = [str(name).strip()[:80] for name in payload.get("albums", []) if str(name).strip()][:100]
+                else:
+                    state["theme"] = {
+                        "preset": str(payload.get("preset", ""))[:40],
+                        "customImage": str(payload.get("customImage", ""))[:10000000],
+                        "overlay": max(0, min(100, int(payload.get("overlay", 18)))),
+                        "brightness": max(50, min(150, int(payload.get("brightness", 100))))
+                    }
+                save_state(state)
+                self.send_json(200, {"state": state})
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_json(400, {"error": str(error)})
+            return
         if not authorized_admin(self):
             self.send_json(401, {"error": "Administrator login required."})
             return
@@ -299,6 +386,17 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
+        if path.startswith("/api/state/comments/"):
+            if not authorized_admin(self):
+                self.send_json(401, {"error": "Administrator login required."})
+                return
+            comment_id = unquote(path[len("/api/state/comments/"):])
+            state = load_state()
+            for photo_id, items in state["comments"].items():
+                state["comments"][photo_id] = [item for item in items if item.get("id") != comment_id]
+            save_state(state)
+            self.send_json(200, {"ok": True})
+            return
         if not authorized_admin(self):
             self.send_json(401, {"error": "Administrator login required."})
             return

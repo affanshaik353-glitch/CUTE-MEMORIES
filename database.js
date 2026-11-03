@@ -1,292 +1,117 @@
-/* Server-backed photo persistence shared by every visitor. */
+/* Browser adapter for the shared Cute Memories API. */
 (function () {
-  function request(path, options = {}) {
-    const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 180000);
-    const cacheMode = options.method && options.method !== 'GET' ? 'no-store' : 'no-cache';
+  const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
+
+  async function request(path, options = {}) {
     const headers = new Headers(options.headers || {});
-    const adminToken = sessionStorage.getItem('cuteMemoriesApiToken');
-    if (adminToken) headers.set('Authorization', `Bearer ${adminToken}`);
-    return fetch(`${baseUrl}${path}`, { ...options, headers, cache: cacheMode, signal: controller.signal }).then(async response => {
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-      return body;
-    }).catch(error => {
-      if (error.name === 'AbortError') throw new Error('The photo server did not respond. Check the shared API connection.');
-      throw new Error(`Could not connect to the photo server: ${error.message}`);
-    }).finally(() => clearTimeout(timeout));
+    const token = sessionStorage.getItem('cuteMemoriesApiToken');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(`${baseUrl}${path}`, { ...options, headers, cache: 'no-store' });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+    return body;
   }
 
-  const localPhotos = (() => {
-    const DB_NAME = 'CuteMemoriesGitHub';
-    const STORE = 'photos';
+  const localDB = (() => {
+    const DB_NAME = 'CuteMemoriesLocal';
     let connection;
-
-    function openDB() {
+    function open() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, 1);
-        request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' });
+        request.onupgradeneeded = () => request.result.createObjectStore('photos', { keyPath: 'id' });
         request.onsuccess = () => { connection = request.result; resolve(connection); };
         request.onerror = () => reject(request.error);
       });
     }
-
-    async function getConnection() {
-      return connection || openDB();
+    async function store(mode, action) {
+      const db = connection || await open();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('photos', mode);
+        const result = action(transaction.objectStore('photos'));
+        result.onsuccess = () => resolve(result.result);
+        result.onerror = () => reject(result.error);
+      });
     }
-
-    function run(mode, action) {
-      return getConnection().then(db => new Promise((resolve, reject) => {
-        const transaction = db.transaction(STORE, mode);
-        const request = action(transaction.objectStore(STORE));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      }));
-    }
-
     return {
-      getAll: () => run('readonly', store => store.getAll()),
-      put: photo => run('readwrite', store => store.put(photo)).then(() => photo),
-      delete: id => run('readwrite', store => store.delete(id)).then(() => undefined),
-      clear: () => run('readwrite', store => store.clear()).then(() => undefined)
+      getAll: () => store('readonly', objectStore => objectStore.getAll()),
+      put: photo => store('readwrite', objectStore => objectStore.put(photo)).then(() => photo),
+      delete: id => store('readwrite', objectStore => objectStore.delete(id)),
+      clear: () => store('readwrite', objectStore => objectStore.clear())
     };
   })();
 
-  const githubPhotos = (() => {
-    const owner = 'affanshaik353-glitch';
-    const repo = 'CUTE-MEMORIES';
-    const manifestPath = 'data/photos.json';
-    const headers = () => ({
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${getToken()}`,
-      'X-GitHub-Api-Version': '2022-11-28'
-    });
-
-    function getToken() {
-      let token = sessionStorage.getItem('githubPhotosToken');
-      if (!token) {
-        token = window.prompt('Enter a GitHub token with Contents write permission for photo uploads.');
-        if (!token) throw new Error('A GitHub upload token is required.');
-        sessionStorage.setItem('githubPhotosToken', token.trim());
-      }
-      return token;
-    }
-
-    async function githubJson(path, options = {}) {
-      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, options);
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || `GitHub request failed (${response.status})`);
-      return body;
-    }
-
-    async function manifestFile() {
-      try {
-        return await githubJson(manifestPath, { headers: headers(), cache: 'no-store' });
-      } catch (error) {
-        if (/404|Not Found/.test(error.message)) return null;
-        throw error;
-      }
-    }
-
-    function rawUrl(path) {
-      const [basePath] = path.split('#');
-      return `https://raw.githubusercontent.com/${owner}/${repo}/main/${basePath}?v=${Date.now()}`;
-    }
-
-    function encodeJson(value) {
-      return btoa(unescape(encodeURIComponent(JSON.stringify(value, null, 2))));
-    }
-
-    function decodeJson(value) {
-      return JSON.parse(decodeURIComponent(escape(atob(value.replace(/\s/g, '')))));
-    }
-
-    async function getAll() {
-      const manifest = await fetch(rawUrl(manifestPath), { cache: 'no-store' });
-      if (!manifest.ok) return [];
-      let photos;
-      try {
-        photos = await manifest.json();
-      } catch (_) {
-        return [];
-      }
-      if (!Array.isArray(photos) || photos.length === 0) return [];
-      return photos.map(photo => ({ ...photo, imageUrl: rawUrl(photo.path) }));
-    }
-
-    async function deletePhoto(id) {
-      getToken();
-      const photos = await getAll();
-      const photo = photos.find(item => item.id === id);
-      if (!photo) return;
-      const file = await githubJson(photo.path, { headers: headers() });
-      await githubJson(photo.path, {
-        method: 'DELETE',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `Delete photo ${id}`, sha: file.sha })
-      });
-      const manifest = await manifestFile();
-      await githubJson(manifestPath, {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `Remove photo ${id}`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(
-            photos.filter(item => item.id !== id).map(({ imageUrl, ...item }) => item), null, 2
-          )))),
-          sha: manifest.sha
-        })
-      });
-    }
-
-    async function clearPhotos() {
-      getToken();
-      const photos = await getAll();
-      for (const photo of photos) {
-        const file = await githubJson(photo.path, { headers: headers() }).catch(() => null);
-        if (file) {
-          await githubJson(photo.path, {
-            method: 'DELETE',
-            headers: { ...headers(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: `Delete photo ${photo.id}`, sha: file.sha })
-          });
-        }
-      }
-      const manifest = await manifestFile();
-      await githubJson(manifestPath, {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'Clear photo gallery',
-          content: encodeJson([]),
-          ...(manifest && manifest.sha ? { sha: manifest.sha } : {})
-        })
-      });
-    }
-
-    async function put(photo) {
-      getToken();
-      const blob = photo.blob || photo.file;
-      if (!blob) throw new Error('Photo data is missing.');
-      if (blob.size > 90 * 1024 * 1024) throw new Error('GitHub only supports files up to 90 MB.');
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      let binary = '';
-      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-      }
-      const extension = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-      const path = `photos/${photo.id}.${extension}`;
-      const existing = await githubJson(path, { headers: headers() }).catch(() => null);
-      await githubJson(path, {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `Add photo ${photo.id}`,
-          content: btoa(binary),
-          ...(existing && existing.sha ? { sha: existing.sha } : {})
-        })
-      });
-
-      const manifest = await manifestFile();
-      const photos = manifest && manifest.content
-        ? decodeJson(manifest.content)
-        : await getAll().catch(() => []);
-      const metadata = {
-        id: photo.id,
-        path,
-        title: photo.title || '',
-        description: photo.description || '',
-        album: photo.album || '',
-        createdAt: photo.createdAt || new Date().toISOString(),
-        type: blob.type
-      };
-      await githubJson(manifestPath, {
-        method: 'PUT',
-        headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: `Update photo gallery ${photo.id}`,
-          content: btoa(unescape(encodeURIComponent(JSON.stringify(
-            [...photos.filter(item => item.id !== photo.id), metadata], null, 2
-          )))),
-          ...(manifest && manifest.sha ? { sha: manifest.sha } : {})
-        })
-      });
-      return photo;
-    }
-
-    return { getAll, put, delete: deletePhoto, clear: clearPhotos };
-  })();
-
   window.MemoryDB = {
-    async getAll() {
-      const result = await request('/api/photos');
-      return result.photos || [];
+    getAll: async () => {
+      try {
+        const result = await request('/api/photos');
+        window.cuteMemoriesServerAvailable = true;
+        return result.photos || [];
+      } catch (_) {
+        window.cuteMemoriesServerAvailable = false;
+        return localDB.getAll();
+      }
     },
     async put(photo) {
-      let blob = photo.blob;
-      if (!blob && photo.image) {
-        blob = await fetch(photo.image).then(response => response.blob());
+      if (!window.cuteMemoriesServerAvailable) {
+        return localDB.put(photo);
       }
+      const blob = photo.blob || photo.file;
       if (!blob) throw new Error('The photo file is missing.');
-      const chunkSize = 8 * 1024 * 1024;
-      const chunkCount = Math.ceil(blob.size / chunkSize);
+      const chunkSize = 4 * 1024 * 1024;
+      const chunkCount = Math.max(1, Math.ceil(blob.size / chunkSize));
       for (let index = 0; index < chunkCount; index++) {
-        const chunk = blob.slice(index * chunkSize, (index + 1) * chunkSize);
         const form = new FormData();
         form.append('id', photo.id);
         form.append('index', String(index));
         form.append('chunkCount', String(chunkCount));
-        form.append('chunk', chunk, `${photo.id}-${index}.bin`);
-        await request('/api/photos/chunk', {
-          method: 'PUT',
-          body: form
-        });
+        form.append('chunk', blob.slice(index * chunkSize, (index + 1) * chunkSize), `${photo.id}-${index}.part`);
+        await request('/api/photos/chunk', { method: 'PUT', body: form });
       }
       await request('/api/photos', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          complete: true,
-          id: photo.id,
-          chunkCount,
-          type: blob.type || 'image/jpeg',
-          title: photo.title || '',
-          description: photo.description || '',
-          album: photo.album || '',
-          createdAt: photo.createdAt || new Date().toISOString()
-        })
+        body: JSON.stringify({ complete: true, id: photo.id, chunkCount, type: blob.type || 'image/jpeg',
+          title: photo.title || '', description: photo.description || '', album: photo.album || '',
+          createdAt: photo.createdAt || new Date().toISOString() })
       });
       return photo;
     },
     async delete(id) {
+      if (!window.cuteMemoriesServerAvailable) return localDB.delete(id);
       await request(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     async clear() {
+      if (!window.cuteMemoriesServerAvailable) return localDB.clear();
       await request('/api/photos', { method: 'DELETE' });
+    },
+    async getState() {
+      if (!window.cuteMemoriesServerAvailable) return null;
+      return request('/api/state');
+    },
+    async toggleLike(photoId, visitorId) {
+      return request('/api/state/like', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId, visitorId }) });
+    },
+    async addComment(photoId, name, text) {
+      return request('/api/state/comments', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId, name, text }) });
+    },
+    async deleteComment(commentId) {
+      await request(`/api/state/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+    },
+    async saveAlbums(albums) {
+      await request('/api/state/albums', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ albums }) });
+    },
+    async saveTheme(theme) {
+      await request('/api/state/theme', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(theme) });
     }
   };
 
   window.MemoryStore = {
-    get(key, fallback) {
-      try {
-        const value = localStorage.getItem(key);
-        return value === null ? fallback : JSON.parse(value);
-      } catch (_) {
-        return fallback;
-      }
-    },
-    set(key, value) {
-      try {
-        localStorage.setItem(key, JSON.stringify(value));
-        return true;
-      } catch (error) {
-        window.dispatchEvent(new CustomEvent('memory-storage-error', { detail: error }));
-        return false;
-      }
-    },
-    remove(key) {
-      localStorage.removeItem(key);
-    }
+    get(key, fallback) { try { const value = localStorage.getItem(key); return value === null ? fallback : JSON.parse(value); } catch (_) { return fallback; } },
+    set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (_) { return false; } },
+    remove(key) { localStorage.removeItem(key); }
   };
 })();
