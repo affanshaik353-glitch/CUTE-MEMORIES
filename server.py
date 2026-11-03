@@ -5,8 +5,17 @@ import mimetypes
 import os
 import re
 import cgi
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+except ImportError:
+    boto3 = None
+
+    class BotoCoreError(Exception):
+        pass
+
+    class ClientError(Exception):
+        pass
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -22,7 +31,13 @@ CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
     INDEX.write_text("[]", encoding="utf-8")
 
-R2_ENABLED = bool(os.environ.get("R2_ACCESS_KEY_ID") and os.environ.get("R2_SECRET_ACCESS_KEY"))
+R2_ENABLED = bool(
+    boto3
+    and os.environ.get("R2_ACCOUNT_ID")
+    and os.environ.get("R2_ACCESS_KEY_ID")
+    and os.environ.get("R2_SECRET_ACCESS_KEY")
+    and os.environ.get("R2_BUCKET")
+)
 R2_BUCKET = os.environ.get("R2_BUCKET", "")
 
 

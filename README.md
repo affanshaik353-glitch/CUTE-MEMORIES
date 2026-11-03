@@ -2,6 +2,15 @@
 
 A complete responsive, browser-based photo gallery built with HTML, CSS, and vanilla JavaScript.
 
+## Publish for free with GitHub Pages
+
+1. Push this folder to a GitHub repository named `CUTE-MEMORIES`.
+2. In GitHub, open **Settings -> Pages**, choose **GitHub Actions** as the source, and run the included **Deploy to GitHub Pages** workflow.
+3. Open the Pages URL shown in **Settings -> Pages**.
+4. When the admin uploads a photo from GitHub Pages, create a fine-grained GitHub token with repository **Contents** read/write permission. Enter it when prompted; it is kept only for the current browser tab.
+
+This deployment uses GitHub Pages and repository storage, so there is no paid server, database, or object-storage service to maintain. Public visitors can view photos without a token; uploads and deletes require an authorized repository token.
+
 ## Run locally
 
 Run the included Python server:

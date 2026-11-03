@@ -56,7 +56,7 @@
     const manifestPath = 'data/photos.json';
     const headers = () => ({
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${sessionStorage.getItem('githubPhotosToken')}`,
+      Authorization: `Bearer ${getToken()}`,
       'X-GitHub-Api-Version': '2022-11-28'
     });
 
@@ -87,7 +87,16 @@
     }
 
     function rawUrl(path) {
-      return `https://raw.githubusercontent.com/${owner}/${repo}/main/${path}`;
+      const [basePath] = path.split('#');
+      return `https://raw.githubusercontent.com/${owner}/${repo}/main/${basePath}?v=${Date.now()}`;
+    }
+
+    function encodeJson(value) {
+      return btoa(unescape(encodeURIComponent(JSON.stringify(value, null, 2))));
+    }
+
+    function decodeJson(value) {
+      return JSON.parse(decodeURIComponent(escape(atob(value.replace(/\s/g, '')))));
     }
 
     async function getAll() {
@@ -122,6 +131,31 @@
       });
     }
 
+    async function clearPhotos() {
+      getToken();
+      const photos = await getAll();
+      for (const photo of photos) {
+        const file = await githubJson(photo.path, { headers: headers() }).catch(() => null);
+        if (file) {
+          await githubJson(photo.path, {
+            method: 'DELETE',
+            headers: { ...headers(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: `Delete photo ${photo.id}`, sha: file.sha })
+          });
+        }
+      }
+      const manifest = await manifestFile();
+      await githubJson(manifestPath, {
+        method: 'PUT',
+        headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Clear photo gallery',
+          content: encodeJson([]),
+          ...(manifest && manifest.sha ? { sha: manifest.sha } : {})
+        })
+      });
+    }
+
     async function put(photo) {
       getToken();
       const blob = photo.blob || photo.file;
@@ -147,7 +181,7 @@
 
       const manifest = await manifestFile();
       const photos = manifest && manifest.content
-        ? JSON.parse(atob(manifest.content.replace(/\s/g, '')))
+        ? decodeJson(manifest.content)
         : await getAll().catch(() => []);
       const metadata = {
         id: photo.id,
@@ -172,7 +206,7 @@
       return photo;
     }
 
-    return { getAll, put, delete: deletePhoto };
+    return { getAll, put, delete: deletePhoto, clear: clearPhotos };
   })();
 
   window.MemoryDB = {
@@ -223,7 +257,7 @@
       await request(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     async clear() {
-      if (window.location.hostname.endsWith('github.io')) return localPhotos.clear();
+      if (window.location.hostname.endsWith('github.io')) return githubPhotos.clear();
       await request('/api/photos', { method: 'DELETE' });
     }
   };

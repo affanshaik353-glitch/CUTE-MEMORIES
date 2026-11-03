@@ -277,20 +277,25 @@
       <div class="stat-card"><span>♡</span><strong>${commentCount}</strong><p>Total comments</p></div></div>`;
   }
   function renderUpload(content) {
-    content.innerHTML = `<div class="admin-panel"><h3>Add Photos</h3><div class="upload-zone"><strong>Choose one or more memories</strong><p>JPG, JPEG, PNG or WEBP · Maximum 30 GB each</p><input id="photoFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple></div><div id="photoPreviews" class="preview-grid"></div>
+    const maximumLabel = window.location.hostname.endsWith('github.io') ? 'Maximum 90 MB each' : 'Maximum 30 GB each';
+    content.innerHTML = `<div class="admin-panel"><h3>Add Photos</h3><div class="upload-zone"><strong>Choose one or more memories</strong><p>JPG, JPEG, PNG or WEBP · ${maximumLabel}</p><input id="photoFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple></div><div id="photoPreviews" class="preview-grid"></div>
       <div class="admin-form-grid"><label>Photo title<input id="uploadTitle" maxlength="80"></label><label>Album<select id="uploadAlbum">${albums().map(name => `<option>${escapeHTML(name)}</option>`).join('')}<option value="">Unsorted</option></select></label></div><label>Description<textarea id="uploadDescription" maxlength="300"></textarea></label>
       <button id="saveUploads" class="form-button">Save Memories</button><progress id="uploadProgress" max="100" value="0" style="width:100%;display:none"></progress></div>`;
     $('#photoFiles').addEventListener('change', previewUploads);
     $('#saveUploads').addEventListener('click', saveUploads);
   }
   function previewUploads(event) {
-    uploadQueue = [...event.target.files].filter(file => file.type.startsWith('image/') && ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= 30 * 1024 * 1024 * 1024);
+    const isGithubPages = window.location.hostname.endsWith('github.io');
+    const maximumSize = isGithubPages ? 90 * 1024 * 1024 : 30 * 1024 * 1024 * 1024;
+    uploadQueue = [...event.target.files].filter(file => file.type.startsWith('image/') && ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= maximumSize);
     const preview = $('#photoPreviews'); preview.innerHTML = '';
     uploadQueue.forEach(file => {
       const url = URL.createObjectURL(file);
       const img = document.createElement('img'); img.src = url; img.alt = file.name; preview.append(img);
     });
-    if (uploadQueue.length !== event.target.files.length) toast('Some files were skipped. Use JPG, PNG or WEBP images smaller than 30 GB.', true);
+    if (uploadQueue.length !== event.target.files.length) {
+      toast(isGithubPages ? 'Some files were skipped. Use JPG, PNG or WEBP images smaller than 90 MB.' : 'Some files were skipped. Use JPG, PNG or WEBP images smaller than 30 GB.', true);
+    }
   }
   async function saveUploads() {
     if (!uploadQueue.length) return toast('Choose at least one photo.', true);
@@ -492,14 +497,21 @@
     applyTheme(MemoryStore.get(KEYS.theme, null));
     visitorId();
     setTimeout(() => $('#loader').classList.add('loaded'), 500);
-    window.setInterval(async () => {
+    let refreshTimer;
+    async function refreshPhotos() {
+      if (document.hidden) return;
       const previousIds = photos.map(photo => photo.id).join('|');
       await loadPhotos();
       if (photos.map(photo => photo.id).join('|') !== previousIds) {
         renderGallery();
         renderAlbums();
       }
-    }, 15000);
+    }
+    refreshTimer = window.setInterval(refreshPhotos, 30000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !refreshTimer) refreshTimer = window.setInterval(refreshPhotos, 30000);
+      if (document.hidden && refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = undefined; }
+    });
   }
   init();
 })();
