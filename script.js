@@ -204,18 +204,30 @@
     const field = $('#adminPassword');
     field.type = field.type === 'password' ? 'text' : 'password';
   });
-  $('#loginForm').addEventListener('submit', event => {
+  $('#loginForm').addEventListener('submit', async event => {
     event.preventDefault();
-    if ($('#adminUser').value.trim() === 'CUTEMEMORIES123' && $('#adminPassword').value === 'CUTE_MEMORIES_123@') {
+    try {
+      const response = await fetch(`${window.CUTE_MEMORIES_API_BASE || ''}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user: $('#adminUser').value.trim(),
+          password: $('#adminPassword').value
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Invalid administrator credentials.');
+      sessionStorage.setItem('cuteMemoriesApiToken', result.token);
       sessionStorage.setItem('cuteMemoriesAdmin', 'true');
       $('#loginDialog').close(); $('#loginForm').reset();
       updateAdminUI(); openDashboard(); toast('Welcome back, Administrator!');
-    } else {
-      $('#loginError').textContent = 'U R NOT THE ADMIN 😡 .PLEASE TRY AGAIN WHITH CORRECT CREDENTIALS'; setTimeout(() => { $('#loginError').textContent = ''; }, 3000);
+    } catch (error) {
+      $('#loginError').textContent = error.message; setTimeout(() => { $('#loginError').textContent = ''; }, 3000);
     }
   });
   function logout() {
     sessionStorage.removeItem('cuteMemoriesAdmin');
+    sessionStorage.removeItem('cuteMemoriesApiToken');
     updateAdminUI(); closeDashboard(); stopCamera(); toast('You have been logged out.');
   }
   $('#logoutNav').addEventListener('click', logout); $('#adminLogout').addEventListener('click', logout);

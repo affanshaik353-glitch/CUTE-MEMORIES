@@ -5,6 +5,9 @@ import mimetypes
 import os
 import re
 import cgi
+import secrets
+import time
+import hmac
 try:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
@@ -26,6 +29,9 @@ PHOTO_DIR = DATA / "photos"
 CHUNK_DIR = DATA / "chunks"
 INDEX = DATA / "photos.json"
 MAX_PHOTO_BYTES = 30 * 1024 * 1024 * 1024
+ADMIN_USER = os.environ.get("ADMIN_USER", "CUTEMEMORIES123")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "CUTE_MEMORIES_123@")
+ADMIN_SESSIONS = {}
 PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
@@ -109,6 +115,23 @@ def photo_file(photo_id):
     return PHOTO_DIR / f"{Path(photo_id).name}.bin"
 
 
+def authorized_admin(handler):
+    authorization = handler.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return False
+    token = authorization[7:].strip()
+    expires = ADMIN_SESSIONS.get(token)
+    if expires is None or expires < time.time():
+        ADMIN_SESSIONS.pop(token, None)
+        return False
+    return True
+
+
+def read_request_json(handler):
+    length = int(handler.headers.get("Content-Length", "0"))
+    return json.loads(handler.rfile.read(length))
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -119,7 +142,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -128,8 +151,25 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/api/login":
+            self.send_json(404, {"error": "Not found."})
+            return
+        try:
+            payload = read_request_json(self)
+            user_valid = hmac.compare_digest(str(payload.get("user", "")), ADMIN_USER)
+            password_valid = hmac.compare_digest(str(payload.get("password", "")), ADMIN_PASSWORD)
+            if not (user_valid and password_valid):
+                self.send_json(401, {"error": "Invalid administrator credentials."})
+                return
+            token = secrets.token_urlsafe(32)
+            ADMIN_SESSIONS[token] = time.time() + 12 * 60 * 60
+            self.send_json(200, {"token": token})
+        except (ValueError, json.JSONDecodeError):
+            self.send_json(400, {"error": "Invalid login request."})
 
     def do_GET(self):
         if urlparse(self.path).path == "/api/photos":
@@ -177,6 +217,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_PUT(self):
         request_path = urlparse(self.path).path
+        if not authorized_admin(self):
+            self.send_json(401, {"error": "Administrator login required."})
+            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if request_path == "/api/photos/chunk":
@@ -256,6 +299,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         path = urlparse(self.path).path
+        if not authorized_admin(self):
+            self.send_json(401, {"error": "Administrator login required."})
+            return
         if path == "/api/photos":
             for photo in load_photos():
                 photo_file(photo["id"]).unlink(missing_ok=True)

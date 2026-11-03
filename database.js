@@ -5,7 +5,10 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 180000);
     const cacheMode = options.method && options.method !== 'GET' ? 'no-store' : 'no-cache';
-    return fetch(`${baseUrl}${path}`, { ...options, cache: cacheMode, signal: controller.signal }).then(async response => {
+    const headers = new Headers(options.headers || {});
+    const adminToken = sessionStorage.getItem('cuteMemoriesApiToken');
+    if (adminToken) headers.set('Authorization', `Bearer ${adminToken}`);
+    return fetch(`${baseUrl}${path}`, { ...options, headers, cache: cacheMode, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
       return body;

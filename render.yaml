@@ -9,6 +9,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.10
+      - key: ADMIN_USER
+        value: CUTEMEMORIES123
+      - key: ADMIN_PASSWORD
+        sync: false
       - key: PORT
         value: 10000
       - key: R2_ACCOUNT_ID
