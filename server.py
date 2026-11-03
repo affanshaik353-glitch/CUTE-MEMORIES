@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 PHOTO_DIR = DATA / "photos"
 INDEX = DATA / "photos.json"
+MAX_PHOTO_BYTES = 30 * 1024 * 1024 * 1024
 PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 if not INDEX.exists():
     INDEX.write_text("[]", encoding="utf-8")
@@ -26,6 +27,10 @@ def load_photos():
 
 def save_photos(photos):
     INDEX.write_text(json.dumps(photos, indent=2) + "\n", encoding="utf-8")
+
+
+def stored_bytes():
+    return sum(path.stat().st_size for path in PHOTO_DIR.glob("*.bin") if path.is_file())
 
 
 def photo_file(photo_id):
@@ -85,7 +90,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(404, {"error": "Not found."})
             return
         try:
-            length = min(int(self.headers.get("Content-Length", "0")), 35 * 1024 * 1024)
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > MAX_PHOTO_BYTES + (4 * 1024 * 1024):
+                raise ValueError("Upload exceeds the 30 GB limit.")
             form = cgi.FieldStorage(
                 fp=self.rfile,
                 headers=self.headers,
@@ -104,7 +111,14 @@ class Handler(SimpleHTTPRequestHandler):
             image_type = upload.type.lower() if upload.type in ("image/jpeg", "image/png", "image/webp") else ""
             if not image_type:
                 raise ValueError("Invalid photo data.")
-            photo_file(photo_id).write_bytes(upload.file.read())
+            file_data = upload.file.read()
+            old_file = photo_file(photo_id)
+            projected_size = stored_bytes() + len(file_data)
+            if old_file.exists():
+                projected_size -= old_file.stat().st_size
+            if projected_size > MAX_PHOTO_BYTES:
+                raise ValueError("The 30 GB gallery storage limit has been reached.")
+            old_file.write_bytes(file_data)
             metadata = {
                 "id": photo_id,
                 "title": str(payload.get("title", ""))[:80],

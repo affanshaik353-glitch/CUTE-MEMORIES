@@ -277,20 +277,20 @@
       <div class="stat-card"><span>♡</span><strong>${commentCount}</strong><p>Total comments</p></div></div>`;
   }
   function renderUpload(content) {
-    content.innerHTML = `<div class="admin-panel"><h3>Add Photos</h3><div class="upload-zone"><strong>Choose one or more memories</strong><p>JPG, JPEG, PNG or WEBP · Maximum 15 MB each</p><input id="photoFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple></div><div id="photoPreviews" class="preview-grid"></div>
+    content.innerHTML = `<div class="admin-panel"><h3>Add Photos</h3><div class="upload-zone"><strong>Choose one or more memories</strong><p>JPG, JPEG, PNG or WEBP · Maximum 30 GB each</p><input id="photoFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple></div><div id="photoPreviews" class="preview-grid"></div>
       <div class="admin-form-grid"><label>Photo title<input id="uploadTitle" maxlength="80"></label><label>Album<select id="uploadAlbum">${albums().map(name => `<option>${escapeHTML(name)}</option>`).join('')}<option value="">Unsorted</option></select></label></div><label>Description<textarea id="uploadDescription" maxlength="300"></textarea></label>
       <button id="saveUploads" class="form-button">Save Memories</button><progress id="uploadProgress" max="100" value="0" style="width:100%;display:none"></progress></div>`;
     $('#photoFiles').addEventListener('change', previewUploads);
     $('#saveUploads').addEventListener('click', saveUploads);
   }
   function previewUploads(event) {
-    uploadQueue = [...event.target.files].filter(file => file.type.startsWith('image/') && ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= 15 * 1024 * 1024);
+    uploadQueue = [...event.target.files].filter(file => file.type.startsWith('image/') && ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= 30 * 1024 * 1024 * 1024);
     const preview = $('#photoPreviews'); preview.innerHTML = '';
     uploadQueue.forEach(file => {
       const url = URL.createObjectURL(file);
       const img = document.createElement('img'); img.src = url; img.alt = file.name; preview.append(img);
     });
-    if (uploadQueue.length !== event.target.files.length) toast('Some files were skipped. Use supported images up to 15 MB.', true);
+    if (uploadQueue.length !== event.target.files.length) toast('Some files were skipped. Use JPG, PNG or WEBP images smaller than 30 GB.', true);
   }
   async function saveUploads() {
     if (!uploadQueue.length) return toast('Choose at least one photo.', true);
