@@ -30,15 +30,14 @@
       const chunkCount = Math.ceil(blob.size / chunkSize);
       for (let index = 0; index < chunkCount; index++) {
         const chunk = blob.slice(index * chunkSize, (index + 1) * chunkSize);
+        const form = new FormData();
+        form.append('id', photo.id);
+        form.append('index', String(index));
+        form.append('chunkCount', String(chunkCount));
+        form.append('chunk', chunk, `${photo.id}-${index}.bin`);
         await request('/api/photos/chunk', {
           method: 'PUT',
-          headers: {
-            'Content-Type': blob.type || 'application/octet-stream',
-            'X-Photo-Id': photo.id,
-            'X-Chunk-Index': String(index),
-            'X-Chunk-Count': String(chunkCount)
-          },
-          body: chunk
+          body: form
         });
       }
       await request('/api/photos', {

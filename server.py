@@ -98,12 +98,21 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if request_path == "/api/photos/chunk":
-                photo_id = self.headers.get("X-Photo-Id", "")
-                index = int(self.headers.get("X-Chunk-Index", "-1"))
-                chunk_count = int(self.headers.get("X-Chunk-Count", "0"))
-                if not re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII) or index < 0 or chunk_count < 1 or length > 9 * 1024 * 1024:
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": self.headers.get("Content-Type"), "CONTENT_LENGTH": str(length)}
+                )
+                id_item = form["id"]
+                photo_id = id_item.value if id_item is not None and hasattr(id_item, "value") else ""
+                index_item = form["index"]
+                index = int(index_item.value) if index_item is not None and hasattr(index_item, "value") else -1
+                count_item = form["chunkCount"]
+                chunk_count = int(count_item.value) if count_item is not None and hasattr(count_item, "value") else 0
+                chunk_item = form["chunk"]
+                if not re.fullmatch(r"photo-[\w-]+", photo_id, re.ASCII) or index < 0 or chunk_count < 1 or chunk_item is None:
                     raise ValueError("Invalid upload chunk.")
-                chunk_dir(photo_id).joinpath(f"{index}.part").write_bytes(self.rfile.read(length))
+                chunk_dir(photo_id).joinpath(f"{index}.part").write_bytes(chunk_item.file.read())
                 self.send_json(200, {"ok": True})
                 return
 
