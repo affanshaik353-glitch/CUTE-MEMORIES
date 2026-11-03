@@ -58,7 +58,7 @@
       photos = await MemoryDB.getAll();
       photos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     } catch (error) {
-      toast(`Photo storage error: ${error.message}`, true);
+      toast(`Photo server error: ${error.message}`, true);
       photos = [];
     }
   }

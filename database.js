@@ -2,11 +2,16 @@
 (function () {
   function request(path, options = {}) {
     const baseUrl = window.CUTE_MEMORIES_API_BASE || '';
-    return fetch(`${baseUrl}${path}`, options).then(async response => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    return fetch(`${baseUrl}${path}`, { ...options, signal: controller.signal }).then(async response => {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
       return body;
-    });
+    }).catch(error => {
+      if (error.name === 'AbortError') throw new Error('The photo server did not respond. Check the shared API connection.');
+      throw new Error(`Could not connect to the photo server: ${error.message}`);
+    }).finally(() => clearTimeout(timeout));
   }
 
   function blobToDataUrl(blob) {
