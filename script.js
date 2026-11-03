@@ -251,8 +251,8 @@
       $('#loginDialog').close(); $('#loginForm').reset();
       updateAdminUI(); openDashboard(); toast('Welcome back, Administrator!');
     } catch (error) {
-      $('#loginError').textContent = error.message.includes('404') || /Could not connect/.test(error.message)
-        ? 'The shared photo API is unavailable. Deploy render.yaml as the "cute-memories-api" Render service and configure its HTTPS URL.'
+      $('#loginError').textContent = window.location.hostname.endsWith('github.io')
+        ? 'GitHub Pages hosts only the frontend. Connect a separate HTTPS API before signing in.'
         : error.message;
       setTimeout(() => { $('#loginError').textContent = ''; }, 5000);
     }

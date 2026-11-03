@@ -141,9 +141,9 @@
   <div id="toastRegion" class="toast-region" aria-live="polite"></div>
   <div id="loader" class="page-loader"><div class="loader-heart">♡</div><span>Loading memories...</span></div>
   <script>
-    window.CUTE_MEMORIES_API_BASE = window.location.hostname.endsWith('github.io')
-      ? 'https://cute-memories-api.onrender.com'
-      : '';
+    // GitHub Pages is a static frontend host. Set this to the HTTPS URL of a
+    // separately deployed backend API. Leave it empty for local development.
+    window.CUTE_MEMORIES_API_BASE = '';
   </script>
   <script src="database.js?v=20261103"></script>
   <script src="script.js?v=20261103"></script>
