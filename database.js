@@ -15,12 +15,49 @@
     }).finally(() => clearTimeout(timeout));
   }
 
+  const localPhotos = (() => {
+    const DB_NAME = 'CuteMemoriesGitHub';
+    const STORE = 'photos';
+    let connection;
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' });
+        request.onsuccess = () => { connection = request.result; resolve(connection); };
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function getConnection() {
+      return connection || openDB();
+    }
+
+    function run(mode, action) {
+      return getConnection().then(db => new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE, mode);
+        const request = action(transaction.objectStore(STORE));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      }));
+    }
+
+    return {
+      getAll: () => run('readonly', store => store.getAll()),
+      put: photo => run('readwrite', store => store.put(photo)).then(() => photo),
+      delete: id => run('readwrite', store => store.delete(id)).then(() => undefined),
+      clear: () => run('readwrite', store => store.clear()).then(() => undefined)
+    };
+  })();
+
   window.MemoryDB = {
     async getAll() {
+      if (window.location.hostname.endsWith('github.io')) return localPhotos.getAll();
       const result = await request('/api/photos');
       return result.photos || [];
     },
     async put(photo) {
+      if (window.location.hostname.endsWith('github.io')) return localPhotos.put(photo);
       let blob = photo.blob;
       if (!blob && photo.image) {
         blob = await fetch(photo.image).then(response => response.blob());
@@ -57,9 +94,11 @@
       return photo;
     },
     async delete(id) {
+      if (window.location.hostname.endsWith('github.io')) return localPhotos.delete(id);
       await request(`/api/photos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     async clear() {
+      if (window.location.hostname.endsWith('github.io')) return localPhotos.clear();
       await request('/api/photos', { method: 'DELETE' });
     }
   };
